@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TouchDesigner Particles Simulator</title>
+    <script src="https://unpkg.com" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com" crossorigin="anonymous"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #050608; overflow: hidden; font-family: monospace; touch-action: none; }
+        #webcam { position: absolute; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0.22; z-index: 1; pointer-events: none; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; }
+        .ui-status { position: absolute; top: 20px; left: 20px; color: #00ffcc; font-size: 11px; z-index: 10; line-height: 1.5; pointer-events: none; text-shadow: 0 0 5px #00ffcc; }
+        .loading-text { position: absolute; width: 100%; text-align: center; top: 50%; width: 100%; color: #ff69b4; font-size: 14px; letter-spacing: 3px; z-index: 15; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="loading-text" id="loader">INITIALIZING SENSOR ENGINE...</div>
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="c"></canvas>
+    <div class="ui-status">
+        PROJECT: project1<br>
+        FPS: 60.0 &nbsp; STATUS: ACTIVE<br>
+        COMP: /project1/particles<br>
+        DEVICE: WEBCAM_TRACKER_01
+    </div>
+    <script>
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+        const loader = document.getElementById('loader');
+        let particles = [], isDrawing = false;
+
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resize); resize();
+
+        class MagicParticle {
+            constructor(x, y) {
+                this.x = x + (Math.random() - 0.5) * 15; this.y = y + (Math.random() - 0.5) * 15;
+                this.type = Math.random() > 0.4 ? 'bunga' : 'kristal'; this.s = Math.random() * 14 + 10; 
+                this.vy = (Math.random() - 0.5) * 5 - 1.5; this.vx = (Math.random() - 0.5) * 5;
+                this.w = Math.random() * Math.PI * 2; this.wSpeed = (Math.random() - 0.5) * 0.06;
+                this.alpha = 1; this.decay = Math.random() * 0.015 + 0.012;
+            }
+            u() { this.x += this.vx; this.y += this.vy; this.w += this.wSpeed; this.alpha -= this.decay; }
+            d() {
+                if (this.alpha <= 0) return;
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.w); ctx.globalAlpha = this.alpha;
+                ctx.shadowBlur = 20; ctx.shadowColor = '#ff4d6d';
+                if (this.type === 'kristal') {
+                    ctx.beginPath(); ctx.moveTo(0,0); ctx.bezierCurveTo(-this.s,-this.s,-this.s*1.8,this.s/2,0,this.s*1.4); ctx.bezierCurveTo(this.s*1.8,this.s/2,this.s,-this.s,0,0); ctx.fillStyle = 'rgba(255, 77, 109, 0.85)'; ctx.fill();
+                } else {
+                    for (let i = 0; i < 5; i++) { ctx.rotate((Math.PI * 2) / 5); ctx.beginPath(); ctx.ellipse(this.s * 0.6, 0, this.s * 0.6, this.s * 0.3, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255, 143, 163, 0.75)'; ctx.fill(); }
+                    ctx.beginPath(); ctx.arc(0, 0, this.s * 0.25, 0, Math.PI * 2); ctx.fillStyle = '#ffb703'; ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        function drawBoundingBox(cx, cy, radius) {
+            ctx.save(); ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 1.5;
+            ctx.strokeRect(cx - radius, cy - radius, radius * 2, radius * 2);
+            ctx.beginPath();
+            ctx.moveTo(cx - radius, cy - radius); ctx.lineTo(cx - radius + 15, cy - radius + 15);
+            ctx.moveTo(cx + radius, cy - radius); ctx.lineTo(cx + radius - 15, cy - radius + 15);
+            ctx.moveTo(cx - radius, cy + radius); ctx.lineTo(cx - radius + 15, cy + radius - 15);
+            ctx.moveTo(cx + radius, cy + radius); ctx.lineTo(cx + radius - 15, cy + radius - 15);
+            ctx.stroke();
+            ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2); ctx.fillStyle = '#00ffcc'; ctx.fill(); ctx.restore();
+        }
+
+        function triggerSemburan(x, y) {
+            if (loader) loader.style.display = 'none';
+            drawBoundingBox(x, y, 70);
+            for (let i = 0; i < 8; i++) { particles.push(new MagicParticle(x, y)); }
+        }
+
+        function onResults(results) {
+            if (loader) loader.style.display = 'none';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    const point = landmarks[9];
+                    const x = (1 - point.x) * canvas.width; const y = point.y * canvas.height;
+                    triggerSemburan(x, y);
+                }
+            }
+            for (let i = particles.length - 1; i >= 0; i--) { particles[i].u(); particles[i].d(); if (particles[i].alpha <= 0) particles.splice(i, 1); }
+        }
+
+        window.addEventListener('mousedown', (e) => { isDrawing = true; triggerSemburan(e.clientX, e.clientY); });
+        window.addEventListener('mousemove', (e) => { if(isDrawing) triggerSemburan(e.clientX, e.clientY); });
+        window.addEventListener('mouseup', () => isDrawing = false);
+        window.addEventListener('touchstart', (e) => { isDrawing = true; triggerSemburan(e.touches[0].clientX, e.touches[0].clientY); });
+        window.addEventListener('touchmove', (e) => { if(isDrawing) triggerSemburan(e.touches[0].clientX, e.touches[0].clientY); });
+        window.addEventListener('touchend', () => isDrawing = false);
+
+        try {
+            const hands = new Hands({ locateFile: (file) => `https://unpkg.com{file}` });
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            hands.onResults(onResults);
+            const camera = new Camera(video, { onFrame: async () => { await hands.send({ image: video }); }, width: 1280, height: 720 });
+            camera.start().then(() => { if (loader) loader.style.display = 'none'; }).catch(e => { console.log("Kamera diblokir"); });
+        } catch(err) { console.log("MediaPipe error, running manual fallback."); }
+
+        function loop(){
+            if(particles.length > 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (let i = particles.length - 1; i >= 0; i--) { particles[i].u(); particles[i].d(); if (particles[i].alpha <= 0) particles.splice(i, 1); }
+            }
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
